@@ -1,21 +1,21 @@
 const http = require("node:http");
-const assert = require("assert");
-const { join, extname, resolve } = require("path");
-const { renameSync, existsSync, readdirSync, readFileSync } = require("fs");
+const assert = require("node:assert");
+const { join, extname, resolve } = require("node:path");
+const { renameSync, existsSync, readdirSync, readFileSync } = require("node:fs");
 
 const PORT = 4242;
-const DATA_PATHS_INFO = {
+const DATA_INFO = {
     dogs: {
-        path: "./data/dogs",
-        size: 0,
+        path: resolve(__dirname, "./data/dogs"),
+        length: 0,
     },
     cats: {
-        path: "./data/cats",
-        size: 0
+        path: resolve(__dirname, "./data/cats"),
+        length: 0
     },
     quotes: {
-        path: "./data/quotes.json",
-        size: 0
+        path: resolve(__dirname, "./data/quotes.json"),
+        length: 0
     }
 };
 const MIME_TYPE = {
@@ -34,16 +34,16 @@ const isNumeric = (n) => {
 };
 
 const init = () => {
-    for (let obj of Object.entries(DATA_PATHS_INFO)) {
-        const path = resolve(__dirname, obj[1].path);
+    const { quotes } = JSON.parse(readFileSync(DATA_INFO.quotes.path));
 
-        if (path.endsWith(".json") && existsSync(path)) {
-            const { quotes } = JSON.parse(readFileSync(path));
+    if (quotes) {
+        DATA_INFO.quotes.length = quotes.length;
+    }
 
-            obj[1].size = quotes.length;
+    const data = Object.entries(DATA_INFO);
 
-            continue;
-        }
+    for (let i = 0; i < data.length - 1; i++) {
+        const { path } = data[i][1];
 
         if (!existsSync(path)) continue;
 
@@ -53,18 +53,18 @@ const init = () => {
             renameSync(join(path, el), join(path, `${idx}${extname(el)}`));
         });
 
-        obj[1].size = files.length;
+        data[i][1].length = files.length;
     }
 
-    assert(DATA_PATHS_INFO.cats.size > 0, "we need at least one cat pic :3");
-    assert(DATA_PATHS_INFO.dogs.size > 0, "we need at least one dog pic :P");
-    assert(DATA_PATHS_INFO.quotes.size > 0, "can we need at least one cool quote? XD");
+    assert(DATA_INFO.cats.length > 0, "cat pics not found. we need at least one cat pic :3");
+    assert(DATA_INFO.dogs.length > 0, "dogs pics not found. we need at least one dog pic :P");
+    assert(DATA_INFO.quotes.length > 0, "go write something, m8. can we get at least one cool quote? XD");
 };
 
-const handleStatic = (req, res, next, fileName) => {
+const handleStaticFiles = (req, res, next, filename) => {
     try {
         const files = readdirSync(join(__dirname, "/public"));
-        const idx = files.indexOf(fileName);
+        const idx = files.indexOf(filename);
 
         if (idx === -1) {
             return next({ message: "not found", status: 404 }, req, res);
@@ -103,7 +103,7 @@ const handleError = (err, req, res) => {
 };
 
 /* ?? idk what name give to this */
-const handleImages = (req, res, next, dataPath, pathSize) => {
+const handleImages = (req, res, next, path, length) => {
     try {
         const { searchParams } = new URL(`http://${req.headers.host}${req.url}`);
         const id = searchParams.get("id") !== '' ? searchParams.get("id") : null;
@@ -112,14 +112,14 @@ const handleImages = (req, res, next, dataPath, pathSize) => {
             return next({ message: "bad request", status: 400 }, req, res);
         }
 
-        const idx = id ?? Math.floor(Math.random() * pathSize - 1);
-        const file = readdirSync(dataPath).at(parseInt(idx));
+        const idx = id ?? Math.floor(Math.random() * length - 1);
+        const file = readdirSync(path).at(parseInt(idx));
 
         if (!file) {
             return next({ message: "not found", status: 404 }, req, res);
         }
 
-        const buffer = readFileSync(resolve(dataPath, file));
+        const buffer = readFileSync(join(path, file));
 
         res.writeHead(200, {
             "content-length": buffer.byteLength,
@@ -148,7 +148,7 @@ const handleQuotes = (req, res, next) => {
         return next({ message: "bad request", status: 400 }, req, res);
     }
 
-    const { quotes } = require(resolve(__dirname, DATA_PATHS_INFO.quotes.path));
+    const { quotes } = require(DATA_INFO.quotes.path);
     const idx = id ?? Math.floor(Math.random() * quotes.length - 1);
     const quote = quotes.at(idx);
 
@@ -176,7 +176,7 @@ const server = http.createServer((req, res) => {
     const publicFilesRegex = new RegExp(/\/public(\/?)/g);
 
     if (!allowedMethods.includes(method)) {
-        return handleError({ message: "not allowed", status: 403 }, req, res);
+        return handleError({ message: "not allowed", status: 405 }, req, res);
     }
 
     if (pathname === "/") {
@@ -190,20 +190,19 @@ const server = http.createServer((req, res) => {
         return res.end(page);
 
     } else if (catsRegex.test(pathname) && pathname.replace(catsRegex, "").length === 0) {
-        handleImages(req, res, handleError, DATA_PATHS_INFO.cats.path, DATA_PATHS_INFO.cats.size);
+        handleImages(req, res, handleError, DATA_INFO.cats.path, DATA_INFO.cats.length);
 
     } else if (dogsRegex.test(pathname) && pathname.replace(dogsRegex, "").length === 0) {
-        handleImages(req, res, handleError, DATA_PATHS_INFO.dogs.path, DATA_PATHS_INFO.dogs.size);
+        handleImages(req, res, handleError, DATA_INFO.dogs.path, DATA_INFO.dogs.length);
 
     } else if (quotesRegex.test(pathname) && pathname.replace(quotesRegex, "").length === 0) {
         handleQuotes(req, res, handleError);
 
     } else if (publicFilesRegex.test(pathname) && MIME_TYPE[pathname.replace(publicFilesRegex, "").split(".").at(-1)]) {
-        handleStatic(req, res, handleError, pathname.replace(publicFilesRegex, ""));
+        handleStaticFiles(req, res, handleError, pathname.replace(publicFilesRegex, ""));
 
     } else {
         handleError({ message: "how did you get here?", status: 404 }, req, res);
-
     }
 });
 
