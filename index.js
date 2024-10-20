@@ -4,7 +4,7 @@ const { join, extname, resolve } = require("node:path");
 const { renameSync, existsSync, readdirSync, readFileSync } = require("node:fs");
 
 const PORT = 4242;
-const DATA_INFO = {
+const RESOURCE_PATHS = {
     dogs: {
         path: resolve(__dirname, "./data/dogs"),
         length: 0,
@@ -19,7 +19,6 @@ const DATA_INFO = {
     }
 };
 const MIME_TYPE = {
-    js: "text/javascript",
     txt: "text/plain",
     gif: "image/gif",
     jpg: "image/jpeg",
@@ -28,19 +27,24 @@ const MIME_TYPE = {
     html: "text/html",
     json: "application/json"
 };
-
 const isNumeric = (n) => {
     return new RegExp(/^\d*$/).test(n);
 };
+const isPathMatching = (pathname, regex, isLengthMatter = true) => {
+    const testPath = regex.test(pathname);
 
+    if (isLengthMatter) return testPath && pathname.replace(regex, "").length === 0;
+
+    return testPath;
+};
 const init = () => {
-    const { quotes } = JSON.parse(readFileSync(DATA_INFO.quotes.path));
+    const { quotes } = JSON.parse(readFileSync(RESOURCE_PATHS.quotes.path));
 
     if (quotes) {
-        DATA_INFO.quotes.length = quotes.length;
+        RESOURCE_PATHS.quotes.length = quotes.length;
     }
 
-    const data = Object.entries(DATA_INFO);
+    const data = Object.entries(RESOURCE_PATHS);
 
     for (let i = 0; i < data.length - 1; i++) {
         const { path } = data[i][1];
@@ -56,11 +60,10 @@ const init = () => {
         data[i][1].length = files.length;
     }
 
-    assert(DATA_INFO.cats.length > 0, "cat pics not found. we need at least one cat pic :3");
-    assert(DATA_INFO.dogs.length > 0, "dogs pics not found. we need at least one dog pic :P");
-    assert(DATA_INFO.quotes.length > 0, "go write something, m8. can we get at least one cool quote? XD");
+    assert(RESOURCE_PATHS.cats.length > 0, "cat pics not found. we need at least one cat pic :3");
+    assert(RESOURCE_PATHS.dogs.length > 0, "dogs pics not found. we need at least one dog pic :P");
+    assert(RESOURCE_PATHS.quotes.length > 0, "go write something, m8. can we get at least one cool quote? XD");
 };
-
 const handleStaticFiles = (req, res, next, filename) => {
     try {
         const files = readdirSync(join(__dirname, "/public"));
@@ -90,7 +93,6 @@ const handleStaticFiles = (req, res, next, filename) => {
         next(err, req, res);
     }
 };
-
 const handleError = (err, req, res) => {
     const msg = JSON.stringify({ "message": err.message || "something went wrong" });
 
@@ -99,9 +101,8 @@ const handleError = (err, req, res) => {
         "content-type": MIME_TYPE.json
     });
 
-    return res.end(msg);
+    res.end(msg);
 };
-
 /* ?? idk what name give to this */
 const handleImages = (req, res, next, path, length) => {
     try {
@@ -148,7 +149,7 @@ const handleQuotes = (req, res, next) => {
         return next({ message: "bad request", status: 400 }, req, res);
     }
 
-    const { quotes } = require(DATA_INFO.quotes.path);
+    const { quotes } = require(RESOURCE_PATHS.quotes.path);
     const idx = id ?? Math.floor(Math.random() * quotes.length - 1);
     const quote = quotes.at(idx);
 
@@ -187,18 +188,18 @@ const server = http.createServer((req, res) => {
             "content-type": MIME_TYPE.html,
         });
 
-        return res.end(page);
+        res.end(page);
 
-    } else if (catsRegex.test(pathname) && pathname.replace(catsRegex, "").length === 0) {
-        handleImages(req, res, handleError, DATA_INFO.cats.path, DATA_INFO.cats.length);
+    } else if (isPathMatching(pathname, catsRegex)) {
+        handleImages(req, res, handleError, RESOURCE_PATHS.cats.path, RESOURCE_PATHS.cats.length);
 
-    } else if (dogsRegex.test(pathname) && pathname.replace(dogsRegex, "").length === 0) {
-        handleImages(req, res, handleError, DATA_INFO.dogs.path, DATA_INFO.dogs.length);
+    } else if (isPathMatching(pathname, dogsRegex)) {
+        handleImages(req, res, handleError, RESOURCE_PATHS.dogs.path, RESOURCE_PATHS.dogs.length);
 
-    } else if (quotesRegex.test(pathname) && pathname.replace(quotesRegex, "").length === 0) {
+    } else if (isPathMatching(pathname, quotesRegex)) {
         handleQuotes(req, res, handleError);
 
-    } else if (publicFilesRegex.test(pathname) && MIME_TYPE[pathname.replace(publicFilesRegex, "").split(".").at(-1)]) {
+    } else if (isPathMatching(pathname, publicFilesRegex, false) && MIME_TYPE[pathname.replace(publicFilesRegex, "").split(".").at(-1)]) {
         handleStaticFiles(req, res, handleError, pathname.replace(publicFilesRegex, ""));
 
     } else {
